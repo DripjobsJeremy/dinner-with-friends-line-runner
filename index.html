@@ -337,8 +337,31 @@ table.hist td{padding:8px 6px;border-bottom:1px solid var(--line);}
   .action-bar{margin:16px -10px -20px;padding:14px 10px calc(14px + env(safe-area-inset-bottom));}
   .beat{padding:16px 10px;}
   .marquee{padding-left:10px;padding-right:10px;}
-  .stat-row{flex-wrap:wrap;row-gap:14px;}
-  .stat{flex:1 1 40%;}
+
+  /* stack anything that was side-by-side into full-width rows, then size it up */
+  .char-grid{grid-template-columns:1fr;gap:12px;}
+  .char-btn{min-height:74px;padding:18px 16px;}
+  .char-btn .name{font-size:23px;}
+  .char-btn .count{font-size:17px;margin-top:5px;}
+  .char-btn .swatch-dot{width:12px;height:12px;}
+
+  .mode-toggle{flex-direction:column;gap:10px;margin-bottom:20px;}
+  .mode-btn{font-size:19px;min-height:58px;}
+
+  .highlight-row{flex-direction:column;gap:10px;margin-bottom:18px;}
+  .highlight-chip{justify-content:flex-start;padding:15px 18px;min-height:56px;font-size:18px;border-radius:12px;}
+  .highlight-chip .dot{width:11px;height:11px;}
+
+  .action-row{flex-direction:column;}
+  .action-row .btn{flex:none;width:100%;}
+
+  .confirm-row{flex-direction:column;}
+
+  .stat-row{flex-direction:column;gap:0;margin:16px 0;}
+  .stat{display:flex;flex-direction:row-reverse;align-items:center;justify-content:space-between;padding:14px 4px;border-bottom:1px solid var(--line);text-align:left;}
+  .stat:last-child{border-bottom:none;}
+  .stat .num{font-size:28px;}
+  .stat .lbl{font-size:16px;}
 
   /* stacked "card" table instead of a cramped grid */
   .hist-wrap{overflow-x:visible;margin:0;}
@@ -347,10 +370,6 @@ table.hist td{padding:8px 6px;border-bottom:1px solid var(--line);}
   table.hist tr{display:block;border-bottom:1px solid var(--line);padding:10px 0;}
   table.hist td{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:none;}
   table.hist td::before{content:attr(data-label);color:var(--text-lo);font-size:14.5px;text-transform:uppercase;letter-spacing:.02em;font-weight:700;}
-}
-
-@media (max-width:340px){
-  .char-grid{grid-template-columns:1fr;}
 }
 </style>
 </head>
