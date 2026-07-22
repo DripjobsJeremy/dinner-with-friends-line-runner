@@ -325,9 +325,18 @@ table.hist td{padding:8px 6px;border-bottom:1px solid var(--line);}
 .hist-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;}
 .hist-wrap table.hist{min-width:460px;}
 
-@media (max-width:480px){
-  .card{padding:20px 9px;}
-  .action-bar{margin:16px -9px -20px;padding:14px 9px calc(14px + env(safe-area-inset-bottom));}
+@media (max-width:600px){
+  /* remove the outer gutter entirely — let cards run edge-to-edge */
+  .view{padding-left:0;padding-right:0;}
+  .card{
+    border-radius:0;
+    border-left:none;border-right:none;
+    padding:20px 10px;
+    margin-bottom:10px;
+  }
+  .action-bar{margin:16px -10px -20px;padding:14px 10px calc(14px + env(safe-area-inset-bottom));}
+  .beat{padding:16px 10px;}
+  .marquee{padding-left:10px;padding-right:10px;}
   .stat-row{flex-wrap:wrap;row-gap:14px;}
   .stat{flex:1 1 40%;}
 
