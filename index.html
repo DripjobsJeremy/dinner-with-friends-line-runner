@@ -78,7 +78,16 @@ button,select{touch-action:manipulation;}
   background:linear-gradient(180deg, var(--stage-2), var(--stage) 90%);
   border-bottom:1px solid var(--line-strong);
   padding:calc(34px + env(safe-area-inset-top)) 18px 6px;
+  transition:padding .15s ease;
 }
+/* while a rehearsal or reading session is actively on screen, shrink the header
+   chrome so more of the viewport goes to the script itself */
+body.session-active .marquee{
+  padding:calc(14px + env(safe-area-inset-top)) 18px 6px;
+}
+body.session-active .marquee .sub{display:none;}
+body.session-active .marquee-title{margin-bottom:4px;}
+body.session-active .tabs{margin-top:8px;}
 .marquee-title{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   margin-bottom:8px;
@@ -237,7 +246,7 @@ label.field-label{display:block;font-size:15px;text-transform:uppercase;letter-s
 .btn-sm{padding:12px 14px;font-size:15.5px;}
 
 /* ---------- practice screen ---------- */
-.progress-wrap{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.progress-wrap{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .progress-bar{flex:1;height:6px;background:var(--stage-3);border-radius:4px;overflow:hidden;}
 .progress-fill{height:100%;background:var(--amber);border-radius:4px;transition:width .25s ease;}
 .progress-label{font-size:15px;color:var(--text-lo);white-space:nowrap;}
@@ -247,11 +256,11 @@ label.field-label{display:block;font-size:15px;text-transform:uppercase;letter-s
   font-size:16px;color:#211a0d;
   background:var(--amber);
   display:inline-block;padding:5px 10px;border-radius:4px;
-  letter-spacing:.06em;font-weight:700;margin-bottom:12px;
+  letter-spacing:.06em;font-weight:700;margin-bottom:9px;
 }
 
 .script-scroll{
-  max-height:56vh;max-height:56dvh;overflow-y:auto;
+  max-height:70vh;max-height:70dvh;overflow-y:auto;
   -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
   padding:6px 4px 12px;
   border-radius:var(--radius);
@@ -654,6 +663,7 @@ document.getElementById('begin-btn').onclick = ()=>{
   document.getElementById('setup-card').style.display='none';
   document.getElementById('end-card').style.display='none';
   document.getElementById('practice-card').style.display='block';
+  document.body.classList.add('session-active');
   renderCurrentBeat();
 };
 
@@ -711,6 +721,7 @@ document.getElementById('start-read-btn').onclick = ()=>{
   state.pageIdx = 0;
   document.getElementById('setup-card').style.display='none';
   document.getElementById('read-card').style.display='block';
+  document.body.classList.add('session-active');
   renderHighlightRow('highlight-row-reading');
   renderReadPage();
 };
@@ -726,11 +737,13 @@ document.getElementById('read-next-btn').onclick = ()=>{
     // finished — back to setup
     document.getElementById('read-card').style.display='none';
     document.getElementById('setup-card').style.display='block';
+    document.body.classList.remove('session-active');
   }
 };
 document.getElementById('read-exit-btn').onclick = ()=>{
   document.getElementById('read-card').style.display='none';
   document.getElementById('setup-card').style.display='block';
+  document.body.classList.remove('session-active');
 };
 
 // ================= PRACTICE ENGINE =================
@@ -998,6 +1011,7 @@ async function finalizeSession(){
 async function showSessionEnd(early){
   await finalizeSession();
   document.getElementById('practice-card').style.display='none';
+  document.body.classList.remove('session-active');
   const endCard = document.getElementById('end-card');
   endCard.style.display='block';
   const s = window._lastSession;
