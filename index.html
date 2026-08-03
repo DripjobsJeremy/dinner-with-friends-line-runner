@@ -232,6 +232,7 @@ label.field-label{display:block;font-size:15px;text-transform:uppercase;letter-s
 .btn-ghost{background:var(--stage-3);color:var(--text-hi);border:1px solid var(--line);}
 .btn-good{background:var(--good);color:#0d2415;}
 .btn-warn{background:var(--warn);color:#2b1a09;}
+.btn-bad{background:var(--bad);color:#2a0e0e;}
 .btn-line{background:transparent;color:var(--amber-text);border:2px dashed var(--amber-dim);}
 .btn-sm{padding:12px 14px;font-size:15.5px;}
 
@@ -522,6 +523,7 @@ let state = {
   idx: 0,
   hintLevel: 0,
   revealed: false,
+  awaitingAccuracy: false,
   markedClean: false,
   sessionLines: [], // {id, text, sceneKey, hintLevel, result}
   mode: 'rehearse', // 'rehearse' | 'read'
@@ -645,6 +647,9 @@ document.getElementById('begin-btn').onclick = ()=>{
   state.scopeKey = scopeLabel(scopeVal);
   state.beats = getBeatsForScope(scopeVal);
   state.idx = 0;
+  state.hintLevel = 0;
+  state.revealed = false;
+  state.awaitingAccuracy = false;
   state.sessionLines = [];
   document.getElementById('setup-card').style.display='none';
   document.getElementById('end-card').style.display='none';
@@ -868,6 +873,20 @@ function renderActionBar(){
     return;
   }
 
+  // Line is fully revealed and waiting on the actor's own read of how accurate they were
+  if(state.revealed && state.awaitingAccuracy){
+    bar.innerHTML = '<div class="action-row">'+
+      '<button class="btn btn-good btn-sm" id="btn-acc-perfect">✓ Nailed it</button>'+
+      '<button class="btn btn-warn btn-sm" id="btn-acc-close">~ Close, minor slip</button>'+
+      '<button class="btn btn-bad btn-sm" id="btn-acc-rough">✗ Not quite</button>'+
+      '</div>' + tally;
+    document.getElementById('btn-acc-perfect').onclick = ()=>submitAccuracy('perfect');
+    document.getElementById('btn-acc-close').onclick = ()=>submitAccuracy('close');
+    document.getElementById('btn-acc-rough').onclick = ()=>submitAccuracy('rough');
+    return;
+  }
+
+  // Result already recorded (or whole line was force-shown) — just move on
   if(state.revealed){
     bar.innerHTML = '<div class="action-row"><button class="btn btn-primary" id="btn-continue">Continue ▸</button></div>' + tally;
     document.getElementById('btn-continue').onclick = advance;
@@ -876,37 +895,61 @@ function renderActionBar(){
 
   if(state.hintLevel===0){
     bar.innerHTML = '<div class="action-row">'+
-      '<button class="btn btn-good" id="btn-clean">✓ I said it</button>'+
+      '<button class="btn btn-good" id="btn-reveal">Reveal &amp; Check ✓</button>'+
       '<button class="btn btn-line" id="btn-line">🗣 Line!</button>'+
       '</div>' + tally;
-    document.getElementById('btn-clean').onclick = ()=>markResult('clean', true);
+    document.getElementById('btn-reveal').onclick = revealForCheck;
     document.getElementById('btn-line').onclick = ()=>{ state.hintLevel=1; renderCurrentBeat(); };
   } else if(state.hintLevel===1){
     bar.innerHTML = '<div class="action-row">'+
-      '<button class="btn btn-good btn-sm" id="btn-got">Got it now ✓</button>'+
+      '<button class="btn btn-good btn-sm" id="btn-got">Got it — check ✓</button>'+
       '<button class="btn btn-line btn-sm" id="btn-more">More…</button>'+
       '<button class="btn btn-ghost btn-sm" id="btn-whole">Whole line</button>'+
       '</div>' + tally;
-    document.getElementById('btn-got').onclick = ()=>markResult('hinted', true);
+    document.getElementById('btn-got').onclick = revealForCheck;
     document.getElementById('btn-more').onclick = ()=>{ state.hintLevel=2; renderCurrentBeat(); };
-    document.getElementById('btn-whole').onclick = ()=>{ state.hintLevel=3; markResult('shown', true); };
+    document.getElementById('btn-whole').onclick = requestWholeLine;
   } else if(state.hintLevel===2){
     bar.innerHTML = '<div class="action-row">'+
-      '<button class="btn btn-good btn-sm" id="btn-got2">Got it now ✓</button>'+
+      '<button class="btn btn-good btn-sm" id="btn-got2">Got it — check ✓</button>'+
       '<button class="btn btn-ghost btn-sm" id="btn-whole2">Whole line</button>'+
       '</div>' + tally;
-    document.getElementById('btn-got2').onclick = ()=>markResult('hinted', true);
-    document.getElementById('btn-whole2').onclick = ()=>{ state.hintLevel=3; markResult('shown', true); };
-  } else {
-    bar.innerHTML = '<div class="action-row"><button class="btn btn-primary" id="btn-continue3">Continue ▸</button></div>' + tally;
-    document.getElementById('btn-continue3').onclick = advance;
+    document.getElementById('btn-got2').onclick = revealForCheck;
+    document.getElementById('btn-whole2').onclick = requestWholeLine;
   }
 }
 
-function markResult(result, reveal){
+// Reveal the full line so the actor can compare it against what they just said,
+// then wait for their own honest read on how close it was.
+function revealForCheck(){
+  state.revealed = true;
+  state.awaitingAccuracy = true;
+  renderCurrentBeat();
+}
+
+// Actor asked to just see the whole thing outright — no self-comparison needed,
+// they clearly didn't have it, so this always counts as the most-help-needed tier.
+function requestWholeLine(){
+  state.hintLevel = 3;
+  state.revealed = true;
+  state.awaitingAccuracy = false;
+  recordResult('shown');
+}
+
+// Actor's own read on accuracy after seeing the real line, combined with how much
+// hint text they'd already needed, decides the final tracked result.
+function submitAccuracy(accuracy){
+  let result;
+  if(accuracy==='rough') result = 'shown';
+  else if(accuracy==='perfect') result = state.hintLevel===0 ? 'clean' : 'hinted';
+  else result = 'hinted'; // close, minor slip
+  recordResult(result);
+}
+
+function recordResult(result){
   const beat = state.beats[state.idx];
   beat._result = result;
-  state.revealed = !!reveal;
+  state.awaitingAccuracy = false;
   state.sessionLines.push({
     id: beat.id, character: beat.character, text: beat.text,
     sceneKey: beat.sceneKey, hintLevel: state.hintLevel, result
@@ -918,6 +961,7 @@ function advance(){
   state.idx++;
   state.hintLevel = 0;
   state.revealed = false;
+  state.awaitingAccuracy = false;
   renderCurrentBeat();
 }
 
@@ -981,7 +1025,8 @@ async function showSessionEnd(early){
   document.getElementById('btn-restart').onclick = ()=>{
     endCard.style.display='none';
     document.getElementById('setup-card').style.display='block';
-    state.character=null; state.scopeKey=null; state.beats=[]; state.idx=0; state.sessionLines=[];
+    state.character=null; state.scopeKey=null; state.beats=[]; state.idx=0;
+    state.hintLevel=0; state.revealed=false; state.awaitingAccuracy=false; state.sessionLines=[];
     renderCharGrid(); buildScopeOptions(); checkBeginEnabled();
   };
 }
