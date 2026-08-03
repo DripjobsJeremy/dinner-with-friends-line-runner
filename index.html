@@ -579,9 +579,6 @@ let state = {
   markedClean: false,
   studyOpen: false,
   studyLens: null,
-  studyCache: {},
-  studyLoading: false,
-  studyError: false,
   sessionLines: [], // {id, text, sceneKey, hintLevel, result}
   mode: 'rehearse', // 'rehearse' | 'read'
   highlightCharacter: null, // used only in read mode
@@ -1030,7 +1027,12 @@ function advance(){
   renderCurrentBeat();
 }
 
-// ================= SCENE STUDY (INTENTION WIZARD) =================
+// ================= SCENE STUDY (INTENTION WIZARD) — offline dataset =================
+// Motivation/Objective/Obstacle are scene-level by design: in real technique these hold
+// steady across a scene (or sequence) — it's tactics that should shift moment to moment,
+// not the underlying want. Intention/Tactics draw from a curated per-scene pool and vary
+// line to line via a deterministic hash of the line itself, so different lines in the same
+// scene surface different tactical options without needing a live model.
 const LENS_META = {
   motivation: {label:'Motivation'},
   objective:  {label:'Objective'},
@@ -1040,81 +1042,302 @@ const LENS_META = {
 };
 const LENS_ORDER = ['motivation','objective','intention','obstacle','tactics'];
 
-function buildContextExcerpt(idx){
-  const start = Math.max(0, idx-4);
-  const slice = state.beats.slice(start, idx+1);
-  return slice.map(b=>{
-    if(b.type==='direction') return '('+b.text+')';
-    const meta = CHAR_META[b.character];
-    const label = meta ? meta.label : b.character;
-    return label.toUpperCase()+': '+b.text;
-  }).join('\n');
+const SCENE_PROFILES = {
+  0: { // Act I, Scene One — Gabe & Karen's kitchen; Beth reveals Tom is leaving
+    GABE: {
+      motivation: "Gabe's identity runs on being the good host and the loyal friend — proof that he reads people and that loyalty holds a marriage together. Tom's betrayal is a referendum on that whole self-image.",
+      objective: "To keep the evening intact — to comfort Beth without yet having to reckon with what Tom's departure means for his own marriage and his oldest friendship.",
+      obstacle: "He may have sensed something was wrong with Tom and said nothing. Now he has to perform shock while privately calculating what he already knew.",
+      tactics: [
+        {verb:"to entertain", note:"keep steering back to the Italy stories and jokes, buying time before he has to really engage."},
+        {verb:"to investigate", note:"fish for details ('who?' 'a stewardess?') to satisfy his own need to understand, not to help Beth."},
+        {verb:"to referee", note:"manage the room between Karen and Beth rather than have a real reaction of his own."},
+        {verb:"to deflect", note:"use jokes ('one lousy hand-job') to keep the moment from landing on him personally."},
+        {verb:"to comfort", note:"the plain, sincere impulse under all the noise — just to make Beth feel less alone."},
+        {verb:"to protect himself", note:"keep his own marital anxieties submerged while performing sympathy for Beth."},
+      ],
+    },
+    KAREN: {
+      motivation: "Karen's sense of self is built on being the one who holds things together — she introduced Tom and Beth. This news is a referendum on her own judgment about people.",
+      objective: "To reassert control of the room — comfort Beth while quietly auditing her own responsibility for a marriage she helped engineer.",
+      obstacle: "Her own guilt (she made the introduction) fights her instinct to blame Tom outright — she can't fully indict him without indicting her own judgment.",
+      tactics: [
+        {verb:"to interrogate", note:"extract every detail so she can process this as information rather than raw feeling."},
+        {verb:"to defend Tom", note:"reflexively argue 'we don't know the whole story,' even against her own anger."},
+        {verb:"to indict Tom", note:"land clearly on him as villain, partly to protect her own judgment for introducing them."},
+        {verb:"to soothe", note:"physically comfort Beth (Motrin, the placemats) when words aren't enough."},
+        {verb:"to command the room", note:"direct the kids, the wine, the dessert — control the controllable while the uncontrollable sits there."},
+        {verb:"to quietly indict herself", note:"underneath focusing on Tom, privately audit her own role in this."},
+      ],
+    },
+    BETH: {
+      motivation: "Beth has spent the marriage feeling dismissed as 'the mess' of the friend group. Telling Gabe and Karen is genuine grief and, quietly, a bid to finally be taken seriously.",
+      objective: "To get Gabe and Karen fully on her side before Tom gets a chance to tell his version — to lock in their sympathy now.",
+      obstacle: "Her own history of being cast as dramatic undermines her credibility even while she's telling the plain truth.",
+      tactics: [
+        {verb:"to confess", note:"finally let the truth spill after holding it together all night."},
+        {verb:"to test loyalty", note:"watch Gabe and Karen's reactions closely to see whose side they're really on."},
+        {verb:"to minimize", note:"downplay ('it's okay,' 'I don't know') even while devastated, protecting her dignity."},
+        {verb:"to indict Tom", note:"paint him in the worst possible light before he can defend himself."},
+        {verb:"to seek rescue", note:"lean into Karen and Gabe as the family she's choosing over the one falling apart."},
+        {verb:"to perform composure", note:"hold back tears as long as she can before the dam breaks."},
+      ],
+    },
+  },
+  1: { // Act I, Scene Two — Beth & Tom's bedroom, the confrontation
+    BETH: {
+      motivation: "Twelve years of feeling patronized about her worth and her art are surfacing at once. She needs Tom to admit he never respected her — both to justify her anger and to make sense of why this failed.",
+      objective: "To make Tom feel exactly the humiliation and betrayal she feels — to not let him leave this room with the moral high ground.",
+      obstacle: "Their unresolved physical chemistry keeps short-circuiting the confrontation — the fight and the desire are tangled and she can't fully separate them.",
+      tactics: [
+        {verb:"to interrogate", note:"cross-examine what he's told their friends, needing control of the narrative."},
+        {verb:"to wound", note:"land specific, targeted insults ('castrate,' 'banal bullshit') to make him feel what she feels."},
+        {verb:"to shame", note:"use their sex life and his insecurities as ammunition."},
+        {verb:"to provoke", note:"escalate physically — spitting, hitting — to force an honest reaction out of him."},
+        {verb:"to let desire in", note:"allow unresolved attraction to pull the fight somewhere else entirely."},
+        {verb:"to indict his character", note:"go for the big accusation — he never took her seriously as an artist, never respected her."},
+      ],
+    },
+    TOM: {
+      motivation: "Tom has spent years feeling like a supporting player in his own life — dutiful son, dutiful husband. Nancy is the first time in years he's felt like the main character, and he's protecting that feeling.",
+      objective: "To get Beth to release him without a prolonged fight — to make his exit clean enough that he doesn't have to sit in the guilt.",
+      obstacle: "Their actual, undiminished physical attraction keeps derailing his exit — his body keeps contradicting his stated resolve.",
+      tactics: [
+        {verb:"to interrogate", note:"cross-examine what she's told their friends, needing control of his own reputation."},
+        {verb:"to justify", note:"build the case for why leaving is reasonable, even righteous."},
+        {verb:"to wound", note:"retaliate with equally targeted cruelty — her art, her 'myth of talent.'"},
+        {verb:"to provoke", note:"escalate physically, daring her to hit him, needing the fight to become something he can win."},
+        {verb:"to let desire in", note:"let attraction short-circuit an argument he can't otherwise win."},
+        {verb:"to claim victimhood", note:"reframe himself as the one who suffered in silence for years."},
+      ],
+    },
+  },
+  2: { // Act I, Scene Three — Gabe & Karen's home, later that night; Tom arrives
+    GABE: {
+      motivation: "Loyalty to Tom, dating back to freshman orientation, collides head-on with fresh horror at what he's done. He's motivated by not wanting to lose his oldest friend even while he's supposed to be appalled.",
+      objective: "To get Tom to justify himself in a way Gabe can live with — an explanation that lets Gabe keep loving him without becoming complicit.",
+      obstacle: "Karen's absolute moral clarity is the obstacle — she's already decided Tom is unforgivable, which makes Gabe's own ambivalence look weak by comparison.",
+      tactics: [
+        {verb:"to host", note:"fall back into caretaking (fixing Tom a plate) as a way to avoid judgment."},
+        {verb:"to investigate", note:"genuinely try to understand Tom's interior logic — 'is it just sex?'"},
+        {verb:"to counsel", note:"push Tom toward therapy or reconsideration, the reasonable-friend role."},
+        {verb:"to protect the friendship", note:"keep finding ways to excuse or contextualize what's indefensible."},
+        {verb:"to confront", note:"break through with real pushback — 'how can you walk away?'"},
+        {verb:"to grieve quietly", note:"let his own sadness about losing this version of Tom show through the hosting."},
+      ],
+    },
+    KAREN: {
+      motivation: "Karen operates in clear moral categories — right and wrong. Tom's affair is an assault on that entire worldview, not just a betrayal of Beth.",
+      objective: "To punish Tom by withdrawing completely — to make him feel the full weight of losing an approval he's never had to live without.",
+      obstacle: "Gabe's reflexive loyalty to Tom undercuts her — she can't fully exile him from their lives because her own husband won't let her.",
+      tactics: [
+        {verb:"to freeze out", note:"withhold all warmth, make Tom feel the cost of losing her."},
+        {verb:"to interrogate", note:"press for the ugly specifics to justify her disgust."},
+        {verb:"to moralize", note:"hold the line clearly and repeatedly, refusing to soften it."},
+        {verb:"to exit", note:"physically leave the room rather than engage — the ultimate withdrawal."},
+        {verb:"to test Gabe", note:"watch how her husband handles this as a referendum on their own marriage."},
+        {verb:"to relent slightly", note:"the small hug she allows shows the crack in her resolve."},
+      ],
+    },
+    TOM: {
+      motivation: "Tom needs Gabe and Karen's blessing to believe his own story that this is liberation, not collapse. Without it, the narrative he's built starts to crack.",
+      objective: "To get Gabe on his side before Beth's version of events hardens into the group's consensus truth.",
+      obstacle: "Karen's icy, immediate judgment forecloses any sympathetic hearing — he's fighting a verdict already reached before he arrived.",
+      tactics: [
+        {verb:"to lobby", note:"work Gabe and Karen for support before Beth's version becomes consensus."},
+        {verb:"to justify", note:"build his case point by point — the running, the sex, feeling alive again."},
+        {verb:"to provoke sympathy", note:"paint himself as someone who was dying inside for years."},
+        {verb:"to deflect blame", note:"redirect toward Beth — she wouldn't touch him, never showed affection."},
+        {verb:"to perform normalcy", note:"talk about cake and dinner to prove nothing's really changed between old friends."},
+        {verb:"to shut down inquiry", note:"refuse Gabe's real questions ('I don't want your advice') when they get too close."},
+      ],
+    },
+  },
+  3: { // Act II, Scene One — Martha's Vineyard, 12.5 years earlier
+    GABE: {
+      motivation: "Newly married and playing house on his family's property, Gabe wants proof that adult domestic life suits him — and that Tom can have it too, which validates his own choice.",
+      objective: "To engineer a connection between Tom and Beth so his two separate worlds — oldest friend, wife's new friend — merge into one contented unit.",
+      obstacle: "Beth is prickly and defensive about her art, Tom is clumsy and tactless with her — Gabe has to smooth friction between two people he's actively selling to each other.",
+      tactics: [
+        {verb:"to matchmake", note:"actively engineer the connection between Tom and Beth."},
+        {verb:"to tease", note:"needle both of them, testing the temperature of the setup."},
+        {verb:"to seduce Karen", note:"use the excitement of guests arriving to spark intimacy with his wife."},
+        {verb:"to perform history", note:"tell the old Tom stories to establish the friendship's depth for Beth's benefit."},
+        {verb:"to host", note:"manage food, drink, and mood as his primary mode of control."},
+        {verb:"to undercut", note:"make cutting jokes about Beth's art that reveal his own doubts about the setup."},
+      ],
+    },
+    KAREN: {
+      motivation: "Newly married and playing house, Karen wants to prove her new domestic authority — that she can curate not just her own happiness but everyone else's.",
+      objective: "To successfully broker Tom and Beth's relationship, cementing herself as the social architect of the group.",
+      obstacle: "Gabe keeps sabotaging her matchmaking with jokes about Beth's art and personality — she has to manage her husband's mouth as much as the actual introduction.",
+      tactics: [
+        {verb:"to matchmake", note:"actively sell Beth to Tom and vice versa."},
+        {verb:"to manage", note:"referee Gabe's inappropriate jokes in real time."},
+        {verb:"to perform authority", note:"establish herself as the one who curates everyone's happiness."},
+        {verb:"to defend Beth", note:"protect her friend from Gabe's teasing."},
+        {verb:"to nest", note:"use the marinade, the cooking, the domestic ritual to cement her new identity."},
+        {verb:"to charm Tom", note:"keep things light and flirtatious enough that the setup feels effortless."},
+      ],
+    },
+    BETH: {
+      motivation: "Beth wants proof that she can be desired and taken seriously at the same time — that someone can find her art-world identity attractive rather than threatening.",
+      objective: "To protect her work and her dignity from being treated as a punchline, while staying open to Tom's interest.",
+      obstacle: "Tom's clumsy, presumptuous questions about her work read as exactly the dismissiveness she's primed to expect from men.",
+      tactics: [
+        {verb:"to perform ease", note:"project the free-spirit persona, especially around her art."},
+        {verb:"to protect her work", note:"guard her sketchbook and her identity as an artist fiercely."},
+        {verb:"to test Tom", note:"needle him back when he's clumsy — see if he can take it."},
+        {verb:"to charm", note:"let her genuine delight in the island and the moment show."},
+        {verb:"to deflect", note:"use humor about her own incompetence (the cut finger) to manage vulnerability."},
+        {verb:"to flirt", note:"allow the electricity with Tom to build once she decides he's worth the risk."},
+      ],
+    },
+    TOM: {
+      motivation: "Aware he's the last single one in the friend group, Tom feels the social pressure of being 'brought down to earth.' Meeting Beth is as much about proving he can commit as wanting her.",
+      objective: "To impress Beth enough to justify Gabe and Karen's matchmaking, without looking like he's trying too hard.",
+      obstacle: "His own clumsy, joking exterior — the same instinct that makes him tactless about her art — works against the sincerity he's trying to project.",
+      tactics: [
+        {verb:"to charm", note:"impress Beth without looking like he's trying too hard."},
+        {verb:"to perform ease", note:"joke about being 'set up,' downplay the stakes."},
+        {verb:"to needle", note:"test Beth with pointed questions — labels, nudity — to see how she handles pressure."},
+        {verb:"to nurse", note:"use tending her cut finger as an excuse for physical closeness."},
+        {verb:"to bond with Gabe", note:"reinforce the old-friend history to establish his own credibility."},
+        {verb:"to commit performatively", note:"talk about wanting marriage and kids to prove he's ready for this."},
+      ],
+    },
+  },
+  4: { // Act II, Scene Two — Karen & Beth on the patio, months later
+    KAREN: {
+      motivation: "Karen needs to believe leaving a marriage is dangerous and hasty — her own stability depends on divorce being the wrong answer, so Beth moving on fast threatens her worldview.",
+      objective: "To slow Beth down — to get her to interrogate her own choices before Karen has to consider whether Beth's impulsiveness might actually be working.",
+      obstacle: "Beth's visible happiness, and her accusation that Karen 'needs' her to be a mess, leaves Karen with no good answer — it destabilizes her moral high ground.",
+      tactics: [
+        {verb:"to caution", note:"slow Beth down, question the pace of this new relationship."},
+        {verb:"to interrogate", note:"press for details to assess how real or serious this is."},
+        {verb:"to protect", note:"genuinely worry about Beth getting hurt again."},
+        {verb:"to defend her own judgment", note:"push back against the idea she 'needs' Beth to be a mess."},
+        {verb:"to reminisce", note:"invoke their shared history to reassert the old dynamic between them."},
+        {verb:"to withhold full approval", note:"qualify her support even while trying to sound supportive."},
+      ],
+    },
+    BETH: {
+      motivation: "Beth has reframed her marriage and identity around the idea that Tom stunted her, and now needs David and this new chapter to prove she's not the mess everyone assumed.",
+      objective: "To get Karen's blessing specifically — the friend who always saw her as fragile — to see her as capable of a good decision.",
+      obstacle: "Karen's skepticism taps directly into Beth's own private fear that she's repeating the exact pattern — falling hard, fast — that got her into trouble with Tom.",
+      tactics: [
+        {verb:"to justify", note:"build the case for why this is different, why David isn't Tom."},
+        {verb:"to confess", note:"let genuine excitement and vulnerability show through the 'silly' framing."},
+        {verb:"to confront", note:"call out Karen's role-casting of her directly — The Mess, The Ditz."},
+        {verb:"to seek validation", note:"need Karen's blessing specifically, more than anyone else's."},
+        {verb:"to declare independence", note:"assert she's finally choosing for herself, not performing for the group."},
+        {verb:"to needle", note:"push back on Karen's 'perfect' image of her own marriage and choices."},
+      ],
+    },
+  },
+  5: { // Act II, Scene Three — a Manhattan bar, Gabe & Tom
+    GABE: {
+      motivation: "Gabe is grieving a version of Tom that may never have existed, and is desperate to know whether their whole shared history was authentic or performance.",
+      objective: "To get Tom to admit the marriage — and by extension the last twelve years of their foursome — meant something, so Gabe's own choices don't feel naive by comparison.",
+      obstacle: "Tom's genuine happiness and total lack of guilt is the obstacle — there's no crack to get purchase on, no shared grief to bond over.",
+      tactics: [
+        {verb:"to investigate", note:"keep probing what Tom actually feels versus what he's performing."},
+        {verb:"to grieve", note:"let sadness about losing the old Tom leak through the banter."},
+        {verb:"to confront", note:"push back hard when Tom's philosophy starts to sound hollow."},
+        {verb:"to protect the past", note:"defend the value of the life they all built together against Tom's dismissal of it."},
+        {verb:"to test loyalty", note:"see whether Tom still values their friendship over his new life."},
+        {verb:"to perform normalcy", note:"keep the meeting light and collegial even as it guts him."},
+      ],
+    },
+    TOM: {
+      motivation: "Tom needs Gabe specifically — the friend who knew him before any of this — to validate that leaving was brave, not selfish, because Gabe's opinion is the one measuring stick from his old life he still cares about.",
+      objective: "To convert Gabe to his philosophy of self-actualization — to make him envious enough of the freedom that Tom doesn't have to feel alone in the choice.",
+      obstacle: "Gabe's visible grief and disapproval keep puncturing Tom's practiced narrative of triumphant reinvention.",
+      tactics: [
+        {verb:"to convert", note:"sell Gabe on his new philosophy of self-actualization."},
+        {verb:"to boast", note:"detail the sex, the running, the vitality as proof of his rightness."},
+        {verb:"to justify", note:"keep circling back to why leaving was necessary, not selfish."},
+        {verb:"to seek approval", note:"need Gabe specifically to bless the choice."},
+        {verb:"to deflect guilt", note:"redirect to Beth's flaws whenever the conversation gets uncomfortable."},
+        {verb:"to perform lightness", note:"keep the tone breezy to avoid engaging with Gabe's real grief."},
+      ],
+    },
+  },
+  6: { // Act II, Scene Four — Gabe & Karen's bedroom on the Vineyard, that night
+    GABE: {
+      motivation: "Underneath his deflection is real fear of mortality and stagnation — Gabe needs to know his marriage isn't running on the same borrowed time Tom and Beth's was.",
+      objective: "To reassure Karen (and himself) that their marriage's quietness is contentment, not decay, without articulating feelings he's spent the whole play avoiding.",
+      obstacle: "His own habitual deflection — the jokes, the 'boo' game — is the very obstacle Karen is trying to break through; he undermines his own goal by retreating into the pattern that got him here.",
+      tactics: [
+        {verb:"to deflect", note:"use the 'boo' game and jokes to avoid real vulnerability."},
+        {verb:"to reassure", note:"offer comfort about the marriage without fully engaging her actual question."},
+        {verb:"to withhold", note:"stay quiet even when directly asked to talk."},
+        {verb:"to confess partially", note:"let real fear about mortality and stagnation surface briefly."},
+        {verb:"to please", note:"try to give Karen what she seems to want without quite knowing what that is."},
+        {verb:"to reconnect physically", note:"use touch and ritual as a substitute for words."},
+      ],
+    },
+    KAREN: {
+      motivation: "Watching Tom and Beth implode has forced Karen to ask whether she and Gabe are actually different, or just further along the same road — she's confronting her own mortality and the erosion of spontaneity in her marriage.",
+      objective: "To get Gabe to actually talk to her — to break the pattern where she does the emotional labor and he deflects — and to hear that he still wants her, not just relies on her.",
+      obstacle: "Gabe's habitual deflection is the direct obstacle to the real conversation she's trying to have.",
+      tactics: [
+        {verb:"to confront", note:"directly push Gabe to talk instead of deflecting."},
+        {verb:"to confess", note:"share her own dream and fear, taking the emotional risk first."},
+        {verb:"to test", note:"see whether Gabe will meet her vulnerability or retreat again."},
+        {verb:"to indict the pattern", note:"call out his habit of going mute exactly when it matters."},
+        {verb:"to seek reassurance", note:"need to hear he still wants her, not just relies on her."},
+        {verb:"to relent", note:"eventually accept the old game as enough, even if it isn't everything she wanted."},
+      ],
+    },
+  },
+};
+
+function hashStr(s){
+  let h = 0;
+  for(let i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i)) >>> 0; }
+  return h;
 }
 
-function buildLensPrompt(lens, beat, idx){
-  const meta = CHAR_META[beat.character];
-  const charLabel = meta ? meta.label : beat.character;
-  const excerpt = buildContextExcerpt(idx);
-
-  const instructions = {
-    motivation: `Identify ${charLabel}'s underlying psychological motivation in this moment — the deeper need, fear, or desire from their larger life that's fueling this specific line. Ground it in the text and given circumstances of the play, not generic pop psychology. 2-3 sentences, direct, like a director's note.`,
-    objective: `State ${charLabel}'s concrete, playable objective in this moment — what they want FROM the other person, phrased actively ("to get ___ to ___"). Then in one sentence, connect it to the larger scene objective. Keep it short enough to play immediately.`,
-    intention: `Suggest ONE specific, playable intention (a transitive verb) ${charLabel} could use to deliver this exact line — the precise action they're taking on this line. One sentence justifying why it fits.`,
-    obstacle: `Identify what's standing in ${charLabel}'s way in this moment — the other character's resistance, the circumstances, or something internal (pride, fear, a conflicting feeling). Be specific to this exact moment, not generic. 2-3 sentences.`,
-    tactics: `Offer 3-4 genuinely different tactics (specific playable verbs/approaches) ${charLabel} could try on this line. For each, give a one-sentence rationale for why it could work and what it risks or reveals. Make them meaningfully different from each other, not variations on one idea.`,
-  };
-
-  return `You're a sharp, experienced acting/directing coach helping a working actor rehearse "Dinner With Friends" by Donald Margulies. Give a direct, specific, useful note — the way a good director gives a note in the room, not an academic essay. No preamble like "Great question" — just the note itself. Do not use markdown formatting (no asterisks, no headers) since this renders as plain text.
-
-SCENE: ${beat.sceneKey}
-CONTEXT (leading up to the line):
-${excerpt}
-
-THE LINE IN QUESTION — ${charLabel}: "${beat.text}"
-
-${instructions[lens]}`;
+function getSceneProfile(character, sceneIdx){
+  const scene = SCENE_PROFILES[sceneIdx];
+  return scene ? scene[character] : null;
 }
 
-async function callClaudeForStudy(promptText){
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      messages: [{ role: "user", content: promptText }]
-    })
-  });
-  const data = await response.json();
-  if(data && Array.isArray(data.content)){
-    return data.content.map(b=> b.type==='text' ? b.text : '').join('\n').trim();
+function renderLensContent(lens, beat){
+  const profile = getSceneProfile(beat.character, beat.sceneIdx);
+  if(!profile){
+    return {text: "No scene study written for this speaker yet.", ok:false};
   }
-  throw new Error('Unexpected response shape');
+  if(lens==='motivation') return {text: profile.motivation, ok:true};
+  if(lens==='objective') return {text: profile.objective, ok:true};
+  if(lens==='obstacle') return {text: profile.obstacle, ok:true};
+
+  const pool = profile.tactics;
+  const h = hashStr(beat.id + '|' + beat.text.slice(0,24));
+
+  if(lens==='intention'){
+    const pick = pool[h % pool.length];
+    return {text: 'Try playing this line "'+pick.verb+'" — '+pick.note, ok:true};
+  }
+
+  if(lens==='tactics'){
+    // rotate which 4 of the pool surface, based on the line, so different lines in the
+    // same scene don't always show the identical list
+    const offset = h % pool.length;
+    const picks = [];
+    for(let i=0;i<Math.min(4,pool.length);i++){
+      picks.push(pool[(offset+i) % pool.length]);
+    }
+    return {text: picks.map(p=>'• "'+p.verb+'" — '+p.note).join('\n'), ok:true};
+  }
+  return {text:'', ok:false};
 }
 
-async function requestLens(lens){
+function requestLens(lens){
   const beat = state.beats[state.idx];
   if(!beat || beat.type!=='line') return;
-  const cacheKey = beat.id+'|'+lens;
   state.studyLens = lens;
-
-  if(state.studyCache[cacheKey]){
-    renderStudyPanel();
-    return;
-  }
-
-  state.studyLoading = true;
-  state.studyError = false;
-  renderStudyPanel();
-
-  try{
-    const prompt = buildLensPrompt(lens, beat, state.idx);
-    const text = await callClaudeForStudy(prompt);
-    state.studyCache[cacheKey] = text;
-  }catch(e){
-    state.studyError = true;
-  }
-  state.studyLoading = false;
   renderStudyPanel();
 }
 
@@ -1149,17 +1372,9 @@ function renderStudyPanel(){
     out.textContent = '';
     return;
   }
-  const cacheKey = beat.id+'|'+state.studyLens;
-  if(state.studyLoading){
-    out.className = 'study-output loading';
-    out.textContent = 'Thinking it through…';
-  } else if(state.studyError){
-    out.className = 'study-output error';
-    out.textContent = "Couldn't reach the scene-study assistant — check your connection and try that lens again.";
-  } else {
-    out.className = 'study-output';
-    out.textContent = state.studyCache[cacheKey] || '';
-  }
+  const result = renderLensContent(state.studyLens, beat);
+  out.className = 'study-output' + (result.ok ? '' : ' error');
+  out.textContent = result.text;
 }
 
 document.getElementById('study-toggle').onclick = ()=>{
