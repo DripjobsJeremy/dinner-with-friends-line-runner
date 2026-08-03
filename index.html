@@ -88,6 +88,13 @@ body.session-active .marquee{
 body.session-active .marquee .sub{display:none;}
 body.session-active .marquee-title{margin-bottom:4px;}
 body.session-active .tabs{margin-top:8px;}
+
+/* full page mode — read/rehearse with the header out of the way entirely.
+   The card toolbar (scene label + Reset/Exit) and the action bar stay put,
+   since those carry the controls that still have to be reachable. */
+body.fullpage-mode .marquee{display:none;}
+body.fullpage-mode #app{padding-top:env(safe-area-inset-top);}
+body.fullpage-mode .script-scroll{max-height:82vh;max-height:82dvh;}
 .marquee-title{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   margin-bottom:8px;
@@ -224,8 +231,10 @@ label.field-label{display:block;font-size:15px;text-transform:uppercase;letter-s
 .highlight-chip:hover{transform:scale(1.03);border-color:var(--swatch,var(--amber));}
 .highlight-chip:active{transform:scale(.97);}
 
-.card-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+.card-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;flex-wrap:wrap;}
 .card-toolbar .scene-slate{margin-bottom:0;}
+.toolbar-actions{display:flex;gap:8px;flex:none;}
+.fullpage-btn.active{border-color:var(--amber);color:var(--amber-text);background:color-mix(in srgb, var(--amber) 16%, var(--stage-3));}
 
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
@@ -474,7 +483,10 @@ table.hist td{padding:8px;border-bottom:1px solid var(--line);}
     <div id="practice-card" class="card" style="display:none;">
       <div class="card-toolbar">
         <div class="scene-slate" id="scene-slate"></div>
-        <button class="btn btn-ghost btn-sm" id="rehearse-reset-btn">↺ Reset</button>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost btn-sm fullpage-btn" id="rehearse-fullpage-btn" title="Full page mode">⛶</button>
+          <button class="btn btn-ghost btn-sm" id="rehearse-reset-btn">↺ Reset</button>
+        </div>
       </div>
       <div class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
@@ -494,7 +506,10 @@ table.hist td{padding:8px;border-bottom:1px solid var(--line);}
     <div id="read-card" class="card" style="display:none;">
       <div class="card-toolbar">
         <div class="scene-slate" id="read-scene-slate"></div>
-        <button class="btn btn-ghost btn-sm" id="read-exit-btn">Exit</button>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost btn-sm fullpage-btn" id="read-fullpage-btn" title="Full page mode">⛶</button>
+          <button class="btn btn-ghost btn-sm" id="read-exit-btn">Exit</button>
+        </div>
       </div>
       <div class="highlight-row" id="highlight-row-reading"></div>
       <div class="progress-wrap">
@@ -627,6 +642,7 @@ let state = {
   markedClean: false,
   studyOpen: false,
   studyLens: null,
+  fullPage: false,
   sessionLines: [], // {id, text, sceneKey, hintLevel, result}
   mode: 'rehearse', // 'rehearse' | 'read'
   highlightCharacter: null, // used only in read mode
@@ -759,16 +775,32 @@ document.getElementById('begin-btn').onclick = ()=>{
   document.getElementById('end-card').style.display='none';
   document.getElementById('practice-card').style.display='block';
   document.body.classList.add('session-active');
+  setFullPage(false);
   renderCurrentBeat();
 };
 
 // Shared teardown: used by the mid-rehearsal Reset button and by "New rehearsal"
 // from the session-end summary. Discards progress without saving a session record.
+// Full page mode: hide the header entirely so the script gets nearly the whole
+// screen. Shared between Rehearse and Just Read since only one card is ever
+// visible at a time; both toggle buttons stay in sync.
+function setFullPage(on){
+  state.fullPage = on;
+  document.body.classList.toggle('fullpage-mode', on);
+  ['rehearse-fullpage-btn','read-fullpage-btn'].forEach(id=>{
+    const btn = document.getElementById(id);
+    if(btn) btn.classList.toggle('active', on);
+  });
+}
+document.getElementById('rehearse-fullpage-btn').onclick = ()=> setFullPage(!state.fullPage);
+document.getElementById('read-fullpage-btn').onclick = ()=> setFullPage(!state.fullPage);
+
 function resetToSetupHome(){
   document.getElementById('practice-card').style.display='none';
   document.getElementById('end-card').style.display='none';
   document.getElementById('setup-card').style.display='block';
   document.body.classList.remove('session-active');
+  setFullPage(false);
   state.character = null;
   state.scopeKey = null;
   state.beats = [];
@@ -847,6 +879,7 @@ document.getElementById('start-read-btn').onclick = ()=>{
   document.getElementById('setup-card').style.display='none';
   document.getElementById('read-card').style.display='block';
   document.body.classList.add('session-active');
+  setFullPage(false);
   renderHighlightRow('highlight-row-reading');
   renderReadPage();
 };
@@ -863,12 +896,14 @@ document.getElementById('read-next-btn').onclick = ()=>{
     document.getElementById('read-card').style.display='none';
     document.getElementById('setup-card').style.display='block';
     document.body.classList.remove('session-active');
+    setFullPage(false);
   }
 };
 document.getElementById('read-exit-btn').onclick = ()=>{
   document.getElementById('read-card').style.display='none';
   document.getElementById('setup-card').style.display='block';
   document.body.classList.remove('session-active');
+  setFullPage(false);
 };
 
 // ================= PRACTICE ENGINE =================
@@ -1494,6 +1529,7 @@ async function showSessionEnd(early){
   await finalizeSession();
   document.getElementById('practice-card').style.display='none';
   document.body.classList.remove('session-active');
+  setFullPage(false);
   const endCard = document.getElementById('end-card');
   endCard.style.display='block';
   const s = window._lastSession;
